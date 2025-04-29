@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: raw_user_data
+    database: gym_db
+    schema: public
+    tables:
+      - name: user_account_details
+      - name: user_personal_details
+      - name: user_health_details
+      - name: message_center
