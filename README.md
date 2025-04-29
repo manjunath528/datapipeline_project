@@ -132,6 +132,7 @@ The pipeline consists of the following key steps:
   - Verify Data in Snowflake:
   - After the DAG completes successfully, check the Snowflake tables to ensure that data has been loaded and transformed correctly.
     
-
+### Conclusion
+This pipeline automates the process of extracting raw data from an API, storing it in AWS S3, loading it into Snowflake, and transforming it using dbt into structured data. Apache Airflow handles the orchestration of the entire process.
 
 
