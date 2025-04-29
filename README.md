@@ -1,48 +1,137 @@
-Overview
-========
+# Data Pipeline Project
 
-Welcome to Astronomer! This project was generated after you ran 'astro dev init' using the Astronomer CLI. This readme describes the contents of the project, as well as how to run Apache Airflow on your local machine.
+This project is designed to automate the process of fetching raw data from an API, uploading it to AWS S3, loading it into Snowflake, and transforming the data using dbt (Data Build Tool) to create structured fact and dimension tables. The entire pipeline is orchestrated using Apache Airflow.
 
-Project Contents
-================
+## **Overview**
 
-Your Astro project contains the following files and folders:
+The pipeline consists of the following key steps:
+1. Fetching raw data from an API and saving it locally.
+2. Uploading the data from the local system to an S3 bucket.
+3. Loading the data from the S3 bucket into Snowflake.
+4. Transforming the data using dbt to create fact and dimension tables.
 
-- dags: This folder contains the Python files for your Airflow DAGs. By default, this directory includes one example DAG:
-    - `example_astronauts`: This DAG shows a simple ETL pipeline example that queries the list of astronauts currently in space from the Open Notify API and prints a statement for each astronaut. The DAG uses the TaskFlow API to define tasks in Python, and dynamic task mapping to dynamically print a statement for each astronaut. For more on how this DAG works, see our [Getting started tutorial](https://www.astronomer.io/docs/learn/get-started-with-airflow).
-- Dockerfile: This file contains a versioned Astro Runtime Docker image that provides a differentiated Airflow experience. If you want to execute other commands or overrides at runtime, specify them here.
-- include: This folder contains any additional files that you want to include as part of your project. It is empty by default.
-- packages.txt: Install OS-level packages needed for your project by adding them to this file. It is empty by default.
-- requirements.txt: Install Python packages needed for your project by adding them to this file. It is empty by default.
-- plugins: Add custom or community plugins for your project to this file. It is empty by default.
-- airflow_settings.yaml: Use this local-only file to specify Airflow Connections, Variables, and Pools instead of entering them in the Airflow UI as you develop DAGs in this project.
+## **Technologies Used**
+- **Python**: Core scripting language for processing the data.
+- **Apache Airflow**: Workflow orchestration.
+- **AWS S3**: Cloud storage for raw data.
+- **Snowflake**: Data warehouse for storing and querying the data.
+- **dbt**: For transforming raw data into structured tables (fact and dimension tables).
 
-Deploy Your Project Locally
-===========================
+## **Project Setup**
 
-1. Start Airflow on your local machine by running 'astro dev start'.
+### **Step 1: Moving Data from API to Local System**
 
-This command will spin up 4 Docker containers on your machine, each for a different Airflow component:
+- **API Fetching**: The raw data is fetched from a specified API and saved locally.
+- **Process**: The fetched data is saved as JSON files to the local file system.
 
-- Postgres: Airflow's Metadata Database
-- Webserver: The Airflow component responsible for rendering the Airflow UI
-- Scheduler: The Airflow component responsible for monitoring and triggering tasks
-- Triggerer: The Airflow component responsible for triggering deferred tasks
+### **Step 2: Uploading Local Files to S3**
 
-2. Verify that all 4 Docker containers were created by running 'docker ps'.
+1. **Creating an S3 Bucket**:
+   - Go to the AWS Console and create an S3 bucket (e.g., `gym_raw_data_pipeline`).
 
-Note: Running 'astro dev start' will start your project with the Airflow Webserver exposed at port 8080 and Postgres exposed at port 5432. If you already have either of those ports allocated, you can either [stop your existing Docker containers or change the port](https://www.astronomer.io/docs/astro/cli/troubleshoot-locally#ports-are-not-available-for-my-local-airflow-webserver).
+2. **Creating IAM User**:
+   - Create an IAM user with full access to the S3 bucket and generate the AWS Access Key ID and Secret Key.
 
-3. Access the Airflow UI for your local Airflow project. To do so, go to http://localhost:8080/ and log in with 'admin' for both your Username and Password.
+3. **Setting up Airflow Connection**:
+   - In Apache Airflow, create a new connection for AWS with the Access Key and Secret Key.
 
-You should also be able to access your Postgres Database at 'localhost:5432/postgres'.
+4. **Uploading Data**:
+   - Using an S3 hook in Airflow, upload the local data to the S3 bucket.
+   
+   Example Airflow DAG for uploading files:
+   ```python
+   from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 
-Deploy Your Project to Astronomer
-=================================
+   s3_hook = S3Hook(aws_conn_id='aws_default')
+   local_file_path = "/path/to/local/file.json"
+   bucket_name = "gym_raw_data_pipeline"
+   key_name = "data/file.json"
 
-If you have an Astronomer account, pushing code to a Deployment on Astronomer is simple. For deploying instructions, refer to Astronomer documentation: https://www.astronomer.io/docs/astro/deploy-code/
+   s3_hook.load_file(local_file_path, key_name, bucket_name)
+   ```
+5. **Cleanup**:
+   - After successfully uploading, the local files are deleted to free up space.
+  
+### Step 3: Loading Data From S3 to Snowflake 
+1. **Create Snowflake Database**:
+  - Log in to Snowflake and create a new database (e.g., gym_db).
+2. **Create Snowflake Stage**:
+  - Set up a Snowflake stage to reference the S3 bucket.
+  - Provide the necessary credentials for the IAM user to access the S3 bucket.
+3. **Create Tables in Snowflake**:
+  - Define tables to store data, ensuring relationships between tables using foreign keys.
+  - Example Snowflake SQL for creating tables:
+    ```
+    CREATE TABLE user_account_details (
+    id INT PRIMARY KEY,
+    username STRING,
+    email STRING );
+    ```
+4. **Load Data**:
+  - Use Snowflake's COPY INTO command to load data from the S3 stage into the Snowflake tables.
+5. **Airflow Task for Snowflake**:
+  - Create an Airflow task to execute the Snowflake SQL commands.
+  - Example Airflow task for loading data:
+    ```
+    from airflow.providers.snowflake.operators.snowflake import SnowflakeOperator
+    snowflake_task = SnowflakeOperator(
+    task_id='load_data_to_snowflake',
+    sql="COPY INTO gym_db.user_account_details FROM @gym_stage;",
+    snowflake_conn_id="snowflake_default"
+    )
+    ```
+### Step 4: Transforming Data Using dbt
+1. **Set up dbt Project**:
+  - Initialize a dbt project in the Airflow directory.
+  - Configure the connection to the Snowflake warehouse and database for dbt.
+2. **Grant Permissions**:
+  - Ensure the necessary permissions are granted for dbt to access the source and target databases.
+3. **Define dbt Models**:
+  - Create dbt models for transforming the raw data into fact and dimension tables.
+4. **Run dbt**:
+  - Execute dbt transformations to structure the data. Example dbt model for transforming raw user data:
+    ```
+    -- models/intermediate_user_profile.sql
+    SELECT
+    id,
+    username,
+    email,
+    signup_date
+    FROM {{ source('raw_user_data', 'user_account_details') }}
+    ```
+5. **Airflow Integration**:
+  - Create an Airflow task to run the dbt transformations.
+  - Example Airflow task for dbt:
+    ```
+    from airflow.providers.dbt.cloud.operators.dbt import DbtCloudRunJobOperator
+    dbt_task = DbtCloudRunJobOperator(
+    task_id="run_dbt_transforms",
+    dbt_cloud_conn_id="dbt_cloud_default",
+    job_id="your_dbt_job_id"
+    )
+    ```
+## Running the Project
 
-Contact
-=======
+1. **Install Dependencies**:
+  - Install the required Dependencies and libraries:
+    ```
+    pip install apache-airflow
+    pip install apache-airflow-providers-amazon
+    pip install apache-airflow-providers-snowflake
+    pip install dbt
+    pip install snowflake-connector-python
+    ```
+2. **Start Airflow**:
+  - Start the Airflow web server and scheduler:
+    ```
+    airflow webserver -p 8080
+    airflow scheduler
+    ```
+3. **Trigger the DAG**:
+  - Manually trigger the DAG from the Airflow UI or configure it to run on a schedule.
+  - Verify Data in Snowflake:
+  - After the DAG completes successfully, check the Snowflake tables to ensure that data has been loaded and transformed correctly.
+    
 
-The Astronomer CLI is maintained with love by the Astronomer team. To report a bug or suggest a change, reach out to our support.
+
+
